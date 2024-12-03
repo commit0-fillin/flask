@@ -74,7 +74,9 @@ class Scaffold:
         """The absolute path to the configured static folder. ``None``
         if no static folder is set.
         """
-        pass
+        if self._static_folder is not None:
+            return os.path.join(self.root_path, self._static_folder)
+        return None
 
     @property
     def has_static_folder(self) -> bool:
@@ -82,7 +84,7 @@ class Scaffold:
 
         .. versionadded:: 0.5
         """
-        pass
+        return self._static_folder is not None
 
     @property
     def static_url_path(self) -> str | None:
@@ -91,7 +93,11 @@ class Scaffold:
         If it was not configured during init, it is derived from
         :attr:`static_folder`.
         """
-        pass
+        if self._static_url_path is not None:
+            return self._static_url_path
+        if self.static_folder is not None:
+            return '/' + os.path.basename(self.static_folder)
+        return None
 
     @cached_property
     def jinja_loader(self) -> BaseLoader | None:
@@ -101,7 +107,9 @@ class Scaffold:
 
         .. versionadded:: 0.5
         """
-        pass
+        if self.template_folder is not None:
+            return FileSystemLoader(os.path.join(self.root_path, self.template_folder))
+        return None
 
     @setupmethod
     def get(self, rule: str, **options: t.Any) -> t.Callable[[T_route], T_route]:
@@ -109,7 +117,7 @@ class Scaffold:
 
         .. versionadded:: 2.0
         """
-        pass
+        return self.route(rule, methods=["GET"], **options)
 
     @setupmethod
     def post(self, rule: str, **options: t.Any) -> t.Callable[[T_route], T_route]:
@@ -117,7 +125,7 @@ class Scaffold:
 
         .. versionadded:: 2.0
         """
-        pass
+        return self.route(rule, methods=["POST"], **options)
 
     @setupmethod
     def put(self, rule: str, **options: t.Any) -> t.Callable[[T_route], T_route]:
@@ -125,7 +133,7 @@ class Scaffold:
 
         .. versionadded:: 2.0
         """
-        pass
+        return self.route(rule, methods=["PUT"], **options)
 
     @setupmethod
     def delete(self, rule: str, **options: t.Any) -> t.Callable[[T_route], T_route]:
@@ -133,7 +141,7 @@ class Scaffold:
 
         .. versionadded:: 2.0
         """
-        pass
+        return self.route(rule, methods=["DELETE"], **options)
 
     @setupmethod
     def patch(self, rule: str, **options: t.Any) -> t.Callable[[T_route], T_route]:
@@ -141,7 +149,7 @@ class Scaffold:
 
         .. versionadded:: 2.0
         """
-        pass
+        return self.route(rule, methods=["PATCH"], **options)
 
     @setupmethod
     def route(self, rule: str, **options: t.Any) -> t.Callable[[T_route], T_route]:
@@ -167,7 +175,11 @@ class Scaffold:
         :param options: Extra options passed to the
             :class:`~werkzeug.routing.Rule` object.
         """
-        pass
+        def decorator(f: T_route) -> T_route:
+            endpoint = options.pop("endpoint", None)
+            self.add_url_rule(rule, endpoint, f, **options)
+            return f
+        return decorator
 
     @setupmethod
     def add_url_rule(self, rule: str, endpoint: str | None=None, view_func: ft.RouteCallable | None=None, provide_automatic_options: bool | None=None, **options: t.Any) -> None:
@@ -228,7 +240,36 @@ class Scaffold:
         :param options: Extra options passed to the
             :class:`~werkzeug.routing.Rule` object.
         """
-        pass
+        if endpoint is None and view_func is not None:
+            endpoint = view_func.__name__
+        
+        methods = options.pop("methods", None)
+        if methods is None:
+            methods = getattr(view_func, "methods", None) or ("GET",)
+        if isinstance(methods, str):
+            methods = [methods]
+        
+        # Add "HEAD" if "GET" is in methods
+        if "GET" in methods:
+            methods = set(methods)
+            methods.add("HEAD")
+        
+        # Handle automatic OPTIONS
+        if provide_automatic_options is None:
+            provide_automatic_options = getattr(view_func, "provide_automatic_options", None)
+        if provide_automatic_options is None:
+            provide_automatic_options = True
+        if provide_automatic_options:
+            methods.add("OPTIONS")
+        
+        # Add the rule to the routing table
+        self.url_map.add(Rule(rule, methods=methods, endpoint=endpoint, **options))
+        
+        if view_func is not None:
+            old_func = self.view_functions.get(endpoint)
+            if old_func is not None and old_func != view_func:
+                raise AssertionError(f"View function mapping is overwriting an existing endpoint function: {endpoint}")
+            self.view_functions[endpoint] = view_func
 
     @setupmethod
     def endpoint(self, endpoint: str) -> t.Callable[[F], F]:
