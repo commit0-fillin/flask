@@ -20,7 +20,7 @@ class SessionMixin(MutableMapping):
     @property
     def permanent(self) -> bool:
         """This reflects the ``'_permanent'`` key in the dict."""
-        pass
+        return self.get('_permanent', False)
     new = False
     modified = True
     accessed = True
@@ -104,7 +104,7 @@ class SessionInterface:
 
         This creates an instance of :attr:`null_session_class` by default.
         """
-        pass
+        return self.null_session_class()
 
     def is_null_session(self, obj: object) -> bool:
         """Checks if a given object is a null session.  Null sessions are
@@ -113,11 +113,11 @@ class SessionInterface:
         This checks if the object is an instance of :attr:`null_session_class`
         by default.
         """
-        pass
+        return isinstance(obj, self.null_session_class)
 
     def get_cookie_name(self, app: Flask) -> str:
         """The name of the session cookie. Uses``app.config["SESSION_COOKIE_NAME"]``."""
-        pass
+        return app.config["SESSION_COOKIE_NAME"]
 
     def get_cookie_domain(self, app: Flask) -> str | None:
         """The value of the ``Domain`` parameter on the session cookie. If not set,
@@ -129,7 +129,7 @@ class SessionInterface:
         .. versionchanged:: 2.3
             Not set by default, does not fall back to ``SERVER_NAME``.
         """
-        pass
+        return app.config.get("SESSION_COOKIE_DOMAIN")
 
     def get_cookie_path(self, app: Flask) -> str:
         """Returns the path for which the cookie should be valid.  The
@@ -137,27 +137,27 @@ class SessionInterface:
         config var if it's set, and falls back to ``APPLICATION_ROOT`` or
         uses ``/`` if it's ``None``.
         """
-        pass
+        return app.config.get("SESSION_COOKIE_PATH") or app.config.get("APPLICATION_ROOT") or "/"
 
     def get_cookie_httponly(self, app: Flask) -> bool:
         """Returns True if the session cookie should be httponly.  This
         currently just returns the value of the ``SESSION_COOKIE_HTTPONLY``
         config var.
         """
-        pass
+        return app.config.get("SESSION_COOKIE_HTTPONLY", True)
 
     def get_cookie_secure(self, app: Flask) -> bool:
         """Returns True if the cookie should be secure.  This currently
         just returns the value of the ``SESSION_COOKIE_SECURE`` setting.
         """
-        pass
+        return app.config.get("SESSION_COOKIE_SECURE", False)
 
     def get_cookie_samesite(self, app: Flask) -> str | None:
         """Return ``'Strict'`` or ``'Lax'`` if the cookie should use the
         ``SameSite`` attribute. This currently just returns the value of
         the :data:`SESSION_COOKIE_SAMESITE` setting.
         """
-        pass
+        return app.config.get("SESSION_COOKIE_SAMESITE")
 
     def get_expiration_time(self, app: Flask, session: SessionMixin) -> datetime | None:
         """A helper method that returns an expiration date for the session
@@ -165,7 +165,9 @@ class SessionInterface:
         default implementation returns now + the permanent session
         lifetime configured on the application.
         """
-        pass
+        if session.permanent:
+            return datetime.now(timezone.utc) + app.permanent_session_lifetime
+        return None
 
     def should_set_cookie(self, app: Flask, session: SessionMixin) -> bool:
         """Used by session backends to determine if a ``Set-Cookie`` header
@@ -178,7 +180,9 @@ class SessionInterface:
 
         .. versionadded:: 0.11
         """
-        pass
+        return session.modified or (
+            session.permanent and app.config.get("SESSION_REFRESH_EACH_REQUEST", True)
+        )
 
     def open_session(self, app: Flask, request: Request) -> SessionMixin | None:
         """This is called at the beginning of each request, after
@@ -192,14 +196,31 @@ class SessionInterface:
         context will fall back to using :meth:`make_null_session`
         in this case.
         """
-        pass
+        return SecureCookieSession()
 
     def save_session(self, app: Flask, session: SessionMixin, response: Response) -> None:
         """This is called at the end of each request, after generating
         a response, before removing the request context. It is skipped
         if :meth:`is_null_session` returns ``True``.
         """
-        pass
+        if self.should_set_cookie(app, session):
+            domain = self.get_cookie_domain(app)
+            path = self.get_cookie_path(app)
+            httponly = self.get_cookie_httponly(app)
+            secure = self.get_cookie_secure(app)
+            samesite = self.get_cookie_samesite(app)
+            expires = self.get_expiration_time(app, session)
+            val = self.get_signing_serializer(app).dumps(dict(session))
+            response.set_cookie(
+                self.get_cookie_name(app),
+                val,
+                expires=expires,
+                httponly=httponly,
+                domain=domain,
+                path=path,
+                secure=secure,
+                samesite=samesite,
+            )
 session_json_serializer = TaggedJSONSerializer()
 
 def _lazy_sha1(string: bytes=b'') -> t.Any:
@@ -207,7 +228,8 @@ def _lazy_sha1(string: bytes=b'') -> t.Any:
     SHA-1, in which case the import and use as a default would fail before the
     developer can configure something else.
     """
-    pass
+    import hashlib
+    return hashlib.sha1(string)
 
 class SecureCookieSessionInterface(SessionInterface):
     """The default session interface that stores sessions in signed cookies
