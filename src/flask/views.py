@@ -47,7 +47,9 @@ class View:
         this and return a valid response. Any variables from the URL
         rule are passed as keyword arguments.
         """
-        pass
+        raise NotImplementedError(
+            f"Subclass {self.__class__.__name__} must implement dispatch_request method"
+        )
 
     @classmethod
     def as_view(cls, name: str, *class_args: t.Any, **class_kwargs: t.Any) -> ft.RouteCallable:
@@ -66,7 +68,24 @@ class View:
         .. versionchanged:: 2.2
             Added the ``init_every_request`` class attribute.
         """
-        pass
+        def view(*args: t.Any, **kwargs: t.Any) -> ft.ResponseReturnValue:
+            self = view.view_class(*class_args, **class_kwargs)
+            return current_app.ensure_sync(self.dispatch_request)(*args, **kwargs)
+
+        if cls.init_every_request:
+            view.view_class = cls
+        else:
+            view.view_class = lambda *args, **kwargs: cls(*class_args, **class_kwargs)
+
+        view.__name__ = name
+        view.__doc__ = cls.__doc__
+        view.__module__ = cls.__module__
+        view.methods = cls.methods
+
+        for decorator in cls.decorators:
+            view = decorator(view)
+
+        return view
 
 class MethodView(View):
     """Dispatches request methods to the corresponding instance methods.
