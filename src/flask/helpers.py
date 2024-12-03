@@ -23,7 +23,8 @@ def get_debug_flag() -> bool:
     """Get whether debug mode should be enabled for the app, indicated by the
     :envvar:`FLASK_DEBUG` environment variable. The default is ``False``.
     """
-    pass
+    import os
+    return os.environ.get('FLASK_DEBUG', '').lower() in ('1', 'true', 'yes', 'on')
 
 def get_load_dotenv(default: bool=True) -> bool:
     """Get whether the user has disabled loading default dotenv files by
@@ -32,7 +33,8 @@ def get_load_dotenv(default: bool=True) -> bool:
 
     :param default: What to return if the env var isn't set.
     """
-    pass
+    import os
+    return not os.environ.get("FLASK_SKIP_DOTENV", "").lower() in ("1", "true", "yes", "on")
 
 def stream_with_context(generator_or_function: t.Iterator[t.AnyStr] | t.Callable[..., t.Iterator[t.AnyStr]]) -> t.Iterator[t.AnyStr]:
     """Request contexts disappear when the response is started on the server.
@@ -68,7 +70,31 @@ def stream_with_context(generator_or_function: t.Iterator[t.AnyStr] | t.Callable
 
     .. versionadded:: 0.9
     """
-    pass
+    from .globals import _request_ctx_stack
+    try:
+        ctx = _request_ctx_stack.top
+        if ctx is None:
+            raise RuntimeError('No request context')
+        ctx.preserved = True
+        if callable(generator_or_function):
+            def wrapper(*args, **kwargs):
+                gen = generator_or_function(*args, **kwargs)
+                while True:
+                    try:
+                        yield next(gen)
+                    except StopIteration:
+                        break
+                    finally:
+                        ctx.preserved = True
+            return wrapper
+        else:
+            def generator():
+                for item in generator_or_function:
+                    yield item
+                    ctx.preserved = True
+            return generator()
+    except RuntimeError:
+        return generator_or_function
 
 def make_response(*args: t.Any) -> Response:
     """Sometimes it is necessary to set additional headers in a view.  Because
@@ -112,7 +138,12 @@ def make_response(*args: t.Any) -> Response:
 
     .. versionadded:: 0.6
     """
-    pass
+    from .globals import current_app
+    if not args:
+        return current_app.response_class()
+    if len(args) == 1:
+        args = args[0]
+    return current_app.make_response(args)
 
 def url_for(endpoint: str, *, _anchor: str | None=None, _method: str | None=None, _scheme: str | None=None, _external: bool | None=None, **values: t.Any) -> str:
     """Generate a URL to the given endpoint with the given values.
