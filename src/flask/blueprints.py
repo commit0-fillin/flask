@@ -35,7 +35,7 @@ class Blueprint(SansioBlueprint):
 
         .. versionadded:: 0.9
         """
-        pass
+        return current_app.config['SEND_FILE_MAX_AGE_DEFAULT']
 
     def send_static_file(self, filename: str) -> Response:
         """The view function used to serve files from
@@ -49,7 +49,18 @@ class Blueprint(SansioBlueprint):
         .. versionadded:: 0.5
 
         """
-        pass
+        if not self.has_static_folder:
+            raise RuntimeError("No static folder for this blueprint")
+        
+        # Ensure cache_timeout is an integer or None
+        cache_timeout = self.get_send_file_max_age(filename)
+        cache_timeout = int(cache_timeout) if cache_timeout is not None else None
+
+        return send_from_directory(
+            self.static_folder,
+            filename,
+            max_age=cache_timeout
+        )
 
     def open_resource(self, resource: str, mode: str='rb') -> t.IO[t.AnyStr]:
         """Open a resource file relative to :attr:`root_path` for
@@ -73,4 +84,7 @@ class Blueprint(SansioBlueprint):
         class.
 
         """
-        pass
+        if mode not in ('r', 'rt', 'rb'):
+            raise ValueError("Resources can only be opened for reading")
+        
+        return open(os.path.join(self.root_path, resource), mode)
