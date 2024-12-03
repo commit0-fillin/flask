@@ -63,7 +63,7 @@ class EnvironBuilder(werkzeug.test.EnvironBuilder):
         The serialization will be configured according to the config associated
         with this EnvironBuilder's ``app``.
         """
-        pass
+        return self.app.json.dumps(obj, **kwargs)
 _werkzeug_version = ''
 
 class FlaskClient(Client):
@@ -86,7 +86,7 @@ class FlaskClient(Client):
         self.preserve_context = False
         self._new_contexts: list[t.ContextManager[t.Any]] = []
         self._context_stack = ExitStack()
-        self.environ_base = {'REMOTE_ADDR': '127.0.0.1', 'HTTP_USER_AGENT': f'Werkzeug/{_get_werkzeug_version()}'}
+        self.environ_base = {'REMOTE_ADDR': '127.0.0.1', 'HTTP_USER_AGENT': f'Werkzeug/{_werkzeug_version}'}
 
     @contextmanager
     def session_transaction(self, *args: t.Any, **kwargs: t.Any) -> t.Iterator[SessionMixin]:
@@ -106,7 +106,15 @@ class FlaskClient(Client):
         :meth:`~flask.Flask.test_request_context` which are directly
         passed through.
         """
-        pass
+        with self.application.test_request_context(*args, **kwargs):
+            sess = self.application.session_interface.open_session(
+                self.application, self.application.request
+            )
+            if sess is None:
+                raise RuntimeError("Session handling is not configured.")
+            yield sess
+            resp = self.application.response_class()
+            self.application.session_interface.save_session(self.application, sess, resp)
 
     def __enter__(self) -> FlaskClient:
         if self.preserve_context:
@@ -143,4 +151,10 @@ class FlaskCliRunner(CliRunner):
 
         :return: a :class:`~click.testing.Result` object.
         """
-        pass
+        if cli is None:
+            cli = self.app.cli
+
+        if "obj" not in kwargs:
+            kwargs["obj"] = ScriptInfo(create_app=lambda: self.app)
+
+        return super().invoke(cli, args, **kwargs)
