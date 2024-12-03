@@ -53,8 +53,43 @@ def attach_enctype_error_multidict(request: Request) -> None:
     :param request: The request to patch.
     :meta private:
     """
-    pass
+    orig_getitem = request.files.__getitem__
+
+    def patched_getitem(key):
+        try:
+            return orig_getitem(key)
+        except KeyError:
+            raise DebugFilesKeyError(request, key)
+
+    request.files.__getitem__ = patched_getitem
 
 def explain_template_loading_attempts(app: App, template: str, attempts: list[tuple[BaseLoader, Scaffold, tuple[str, str | None, t.Callable[[], bool] | None] | None]]) -> None:
     """This should help developers understand what failed"""
-    pass
+    from .templating import DispatchingJinjaLoader
+
+    info = ['Locating template "%s":' % template]
+    total_loader = app.jinja_loader
+    if isinstance(total_loader, DispatchingJinjaLoader):
+        for idx, (loader, blueprint, triple) in enumerate(attempts):
+            if isinstance(triple, tuple):
+                name, _filename, _up_to_date = triple
+            else:
+                name = triple
+            if blueprint is not None:
+                info.append('  %s. Trying loader of blueprint "%s" (%r)' % (
+                    idx + 1, blueprint.name, loader
+                ))
+            else:
+                info.append('  %s. Trying loader of application (%r)' % (
+                    idx + 1, loader
+                ))
+            if triple is None:
+                detail = '     - Skipped: no loader returned a triple'
+            elif name != template:
+                detail = '     - Skipped: found "%s"' % name
+            else:
+                detail = '     - Found: "%s"' % name
+            info.append(detail)
+    else:
+        info.append('  - Trying loader (%r)' % total_loader)
+    app.logger.info('\n'.join(info))
