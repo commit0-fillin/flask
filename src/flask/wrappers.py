@@ -30,7 +30,7 @@ class Request(RequestBase):
     @property
     def max_content_length(self) -> int | None:
         """Read-only view of the ``MAX_CONTENT_LENGTH`` config key."""
-        pass
+        return current_app.config['MAX_CONTENT_LENGTH']
 
     @property
     def endpoint(self) -> str | None:
@@ -42,7 +42,9 @@ class Request(RequestBase):
         This in combination with :attr:`view_args` can be used to
         reconstruct the same URL or a modified URL.
         """
-        pass
+        if self.url_rule is not None:
+            return self.url_rule.endpoint
+        return None
 
     @property
     def blueprint(self) -> str | None:
@@ -56,7 +58,9 @@ class Request(RequestBase):
         created with. It may have been nested, or registered with a
         different name.
         """
-        pass
+        if self.endpoint is not None:
+            return self.endpoint.split('.')[0]
+        return None
 
     @property
     def blueprints(self) -> list[str]:
@@ -68,7 +72,9 @@ class Request(RequestBase):
 
         .. versionadded:: 2.0.1
         """
-        pass
+        if self.endpoint is not None:
+            return _split_blueprint_path(self.endpoint)
+        return []
 
 class Response(ResponseBase):
     """The response object that is used by default in Flask.  Works like the
@@ -98,4 +104,4 @@ class Response(ResponseBase):
         See :attr:`~werkzeug.wrappers.Response.max_cookie_size` in
         Werkzeug's docs.
         """
-        pass
+        return current_app.config['MAX_COOKIE_SIZE']
