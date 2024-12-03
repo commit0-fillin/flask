@@ -96,7 +96,15 @@ class Config(dict):
                        files.
         :return: ``True`` if the file was loaded successfully.
         """
-        pass
+        rv = os.environ.get(variable_name)
+        if not rv:
+            if silent:
+                return False
+            raise RuntimeError(f"The environment variable {variable_name!r} is not set "
+                               "and as such configuration could not be "
+                               "loaded. Set this variable and make it "
+                               "point to a configuration file")
+        return self.from_pyfile(rv, silent=silent)
 
     def from_prefixed_env(self, prefix: str='FLASK', *, loads: t.Callable[[str], t.Any]=json.loads) -> bool:
         """Load any environment variables that start with ``FLASK_``,
@@ -122,7 +130,24 @@ class Config(dict):
 
         .. versionadded:: 2.1
         """
-        pass
+        prefix = f"{prefix}_"
+        for key, value in sorted(os.environ.items()):
+            if key.startswith(prefix):
+                key = key[len(prefix):].lower()
+                try:
+                    value = loads(value)
+                except Exception:
+                    pass
+
+                keys = key.split('__')
+                config = self
+                for k in keys[:-1]:
+                    if k not in config:
+                        config[k] = {}
+                    config = config[k]
+                config[keys[-1]] = value
+
+        return True
 
     def from_pyfile(self, filename: str | os.PathLike[str], silent: bool=False) -> bool:
         """Updates the values in the config from a Python file.  This function
@@ -139,7 +164,19 @@ class Config(dict):
         .. versionadded:: 0.7
            `silent` parameter.
         """
-        pass
+        filename = os.path.join(self.root_path, filename)
+        d = types.ModuleType('config')
+        d.__file__ = filename
+        try:
+            with open(filename, mode='rb') as config_file:
+                exec(compile(config_file.read(), filename, 'exec'), d.__dict__)
+        except IOError as e:
+            if silent and e.errno in (errno.ENOENT, errno.EISDIR, errno.ENOTDIR):
+                return False
+            e.strerror = f'Unable to load configuration file ({e.strerror})'
+            raise
+        self.from_object(d)
+        return True
 
     def from_object(self, obj: object | str) -> None:
         """Updates the values from the given object.  An object can be of one
@@ -173,7 +210,11 @@ class Config(dict):
 
         :param obj: an import name or object
         """
-        pass
+        if isinstance(obj, str):
+            obj = import_string(obj)
+        for key in dir(obj):
+            if key.isupper():
+                self[key] = getattr(obj, key)
 
     def from_file(self, filename: str | os.PathLike[str], load: t.Callable[[t.IO[t.Any]], t.Mapping[str, t.Any]], silent: bool=False, text: bool=True) -> bool:
         """Update the values in the config from a file that is loaded
@@ -203,7 +244,18 @@ class Config(dict):
 
         .. versionadded:: 2.0
         """
-        pass
+        filename = os.path.join(self.root_path, filename)
+
+        try:
+            with open(filename, 'r' if text else 'rb') as f:
+                obj = load(f)
+        except OSError as e:
+            if silent and e.errno in (errno.ENOENT, errno.EISDIR):
+                return False
+            e.strerror = f'Unable to load configuration file ({e.strerror})'
+            raise
+
+        return self.from_mapping(obj)
 
     def from_mapping(self, mapping: t.Mapping[str, t.Any] | None=None, **kwargs: t.Any) -> bool:
         """Updates the config like :meth:`update` ignoring items with
@@ -213,7 +265,14 @@ class Config(dict):
 
         .. versionadded:: 0.11
         """
-        pass
+        mappings: dict[str, t.Any] = {}
+        if mapping is not None:
+            mappings.update(mapping)
+        mappings.update(kwargs)
+        for key, value in mappings.items():
+            if key.isupper():
+                self[key] = value
+        return True
 
     def get_namespace(self, namespace: str, lowercase: bool=True, trim_namespace: bool=True) -> dict[str, t.Any]:
         """Returns a dictionary containing a subset of configuration options
@@ -243,7 +302,18 @@ class Config(dict):
 
         .. versionadded:: 0.11
         """
-        pass
+        rv = {}
+        for k, v in self.items():
+            if not k.startswith(namespace):
+                continue
+            if trim_namespace:
+                key = k[len(namespace):]
+            else:
+                key = k
+            if lowercase:
+                key = key.lower()
+            rv[key] = v
+        return rv
 
     def __repr__(self) -> str:
         return f'<{type(self).__name__} {dict.__repr__(self)}>'
