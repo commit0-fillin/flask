@@ -63,22 +63,22 @@ class JSONTag:
 
     def check(self, value: t.Any) -> bool:
         """Check if the given value should be tagged by this tag."""
-        pass
+        raise NotImplementedError()
 
     def to_json(self, value: t.Any) -> t.Any:
         """Convert the Python object to an object that is a valid JSON type.
         The tag will be added later."""
-        pass
+        raise NotImplementedError()
 
     def to_python(self, value: t.Any) -> t.Any:
         """Convert the JSON representation back to the correct type. The tag
         will already be removed."""
-        pass
+        raise NotImplementedError()
 
     def tag(self, value: t.Any) -> dict[str, t.Any]:
         """Convert the value to a valid JSON type and add the tag structure
         around it."""
-        pass
+        return {self.key: self.to_json(value)}
 
 class TagDict(JSONTag):
     """Tag for 1-item dicts whose only key matches a registered tag.
@@ -157,20 +157,40 @@ class TaggedJSONSerializer:
         :raise KeyError: if the tag key is already registered and ``force`` is
             not true.
         """
-        pass
+        tag = tag_class(self)
+        key = tag.key
+
+        if key in self.tags:
+            if not force:
+                raise KeyError(f"Tag '{key}' is already registered.")
+            self.order.remove(self.tags[key])
+
+        self.tags[key] = tag
+
+        if index is None:
+            self.order.append(tag)
+        else:
+            self.order.insert(index, tag)
 
     def tag(self, value: t.Any) -> t.Any:
         """Convert a value to a tagged representation if necessary."""
-        pass
+        for tag in self.order:
+            if tag.check(value):
+                return tag.tag(value)
+        return value
 
     def untag(self, value: dict[str, t.Any]) -> t.Any:
         """Convert a tagged representation back to the original type."""
-        pass
+        if isinstance(value, dict) and len(value) == 1:
+            key = next(iter(value))
+            if key in self.tags:
+                return self.tags[key].to_python(value[key])
+        return value
 
     def dumps(self, value: t.Any) -> str:
         """Tag the value and dump it to a compact JSON string."""
-        pass
+        return dumps(self.tag(value), separators=(',', ':'))
 
     def loads(self, value: str) -> t.Any:
         """Load data from a JSON string and deserialized any tagged objects."""
-        pass
+        return self.untag(loads(value))
