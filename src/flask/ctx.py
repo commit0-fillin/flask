@@ -61,7 +61,7 @@ class _AppCtxGlobals:
 
         .. versionadded:: 0.10
         """
-        pass
+        return self.__dict__.get(name, default)
 
     def pop(self, name: str, default: t.Any=_sentinel) -> t.Any:
         """Get and remove an attribute by name. Like :meth:`dict.pop`.
@@ -72,7 +72,9 @@ class _AppCtxGlobals:
 
         .. versionadded:: 0.11
         """
-        pass
+        if default is _sentinel:
+            return self.__dict__.pop(name)
+        return self.__dict__.pop(name, default)
 
     def setdefault(self, name: str, default: t.Any=None) -> t.Any:
         """Get the value of an attribute if it is present, otherwise
@@ -84,7 +86,7 @@ class _AppCtxGlobals:
 
         .. versionadded:: 0.11
         """
-        pass
+        return self.__dict__.setdefault(name, default)
 
     def __contains__(self, item: str) -> bool:
         return item in self.__dict__
@@ -119,7 +121,8 @@ def after_this_request(f: ft.AfterRequestCallable[t.Any]) -> ft.AfterRequestCall
 
     .. versionadded:: 0.9
     """
-    pass
+    _request_ctx_stack.top._after_request_functions.append(f)
+    return f
 F = t.TypeVar('F', bound=t.Callable[..., t.Any])
 
 def copy_current_request_context(f: F) -> F:
@@ -146,7 +149,11 @@ def copy_current_request_context(f: F) -> F:
 
     .. versionadded:: 0.10
     """
-    pass
+    reqctx = _request_ctx_stack.top.copy()
+    def wrapper(*args, **kwargs):
+        with reqctx:
+            return f(*args, **kwargs)
+    return t.cast(F, update_wrapper(wrapper, f))
 
 def has_request_context() -> bool:
     """If you have code that wants to test if a request context is there or
@@ -177,7 +184,7 @@ def has_request_context() -> bool:
 
     .. versionadded:: 0.7
     """
-    pass
+    return _request_ctx_stack.top is not None
 
 def has_app_context() -> bool:
     """Works like :func:`has_request_context` but for the application
@@ -186,7 +193,7 @@ def has_app_context() -> bool:
 
     .. versionadded:: 0.9
     """
-    pass
+    return _app_ctx_stack.top is not None
 
 class AppContext:
     """The app context contains application-specific information. An app
@@ -203,11 +210,20 @@ class AppContext:
 
     def push(self) -> None:
         """Binds the app context to the current context."""
-        pass
+        app_ctx = _app_ctx_stack.push(self)
+        appcontext_pushed.send(self.app)
+        self._cv_tokens.append(_cv_app.set(self))
 
     def pop(self, exc: BaseException | None=_sentinel) -> None:
         """Pops the app context."""
-        pass
+        try:
+            if len(self._cv_tokens) == 1:
+                self.app.do_teardown_appcontext(exc)
+        finally:
+            _cv_app.reset(self._cv_tokens.pop())
+            rv = _app_ctx_stack.pop()
+            assert rv is self, f"Popped wrong app context. ({rv!r} instead of {self!r})"
+            appcontext_popped.send(self.app)
 
     def __enter__(self) -> AppContext:
         self.push()
@@ -267,13 +283,22 @@ class RequestContext:
            The current session object is used instead of reloading the original
            data. This prevents `flask.session` pointing to an out-of-date object.
         """
-        pass
+        return RequestContext(
+            self.app,
+            self.request.environ,
+            self.request,
+            self.session
+        )
 
     def match_request(self) -> None:
         """Can be overridden by a subclass to hook into the matching
         of the request.
         """
-        pass
+        try:
+            result = self.url_adapter.match(return_rule=True)
+            self.request.url_rule, self.request.view_args = result
+        except HTTPException as e:
+            self.request.routing_exception = e
 
     def pop(self, exc: BaseException | None=_sentinel) -> None:
         """Pops the request context and unbinds it by doing that.  This will
@@ -283,7 +308,18 @@ class RequestContext:
         .. versionchanged:: 0.9
            Added the `exc` argument.
         """
-        pass
+        if exc is _sentinel:
+            exc = sys.exc_info()[1]
+        self.app.do_teardown_request(exc)
+        rv = _request_ctx_stack.pop()
+        assert rv is self, f"Popped wrong request context. ({rv!r} instead of {self!r})"
+        _cv_request.reset(self._cv_tokens.pop()[0])
+        if rv.request.environ.get("flask._preserve_context") or (
+            exc is not None and self.app.preserve_context_on_exception
+        ):
+            self.app.preserve_context()
+        else:
+            self.app.do_teardown_appcontext(exc)
 
     def __enter__(self) -> RequestContext:
         self.push()
