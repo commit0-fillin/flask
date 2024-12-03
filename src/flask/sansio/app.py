@@ -183,7 +183,12 @@ class App(Scaffold):
 
         .. versionadded:: 0.8
         """
-        pass
+        if self.import_name == '__main__':
+            fn = getattr(sys.modules['__main__'], '__file__', None)
+            if fn is None:
+                return '__main__'
+            return os.path.splitext(os.path.basename(fn))[0]
+        return self.import_name
 
     @cached_property
     def logger(self) -> logging.Logger:
@@ -210,7 +215,7 @@ class App(Scaffold):
 
         .. versionadded:: 0.3
         """
-        pass
+        return create_logger(self)
 
     @cached_property
     def jinja_env(self) -> Environment:
@@ -220,7 +225,7 @@ class App(Scaffold):
         accessed. Changing :attr:`jinja_options` after that will have no
         effect.
         """
-        pass
+        return self.create_jinja_environment()
 
     def make_config(self, instance_relative: bool=False) -> Config:
         """Used to create the config attribute by the Flask constructor.
@@ -231,7 +236,10 @@ class App(Scaffold):
 
         .. versionadded:: 0.8
         """
-        pass
+        root_path = self.root_path
+        if instance_relative:
+            root_path = self.instance_path
+        return self.config_class(root_path, self.default_config)
 
     def make_aborter(self) -> Aborter:
         """Create the object to assign to :attr:`aborter`. That object
@@ -243,7 +251,7 @@ class App(Scaffold):
 
         .. versionadded:: 2.2
         """
-        pass
+        return self.aborter_class()
 
     def auto_find_instance_path(self) -> str:
         """Tries to locate the instance path if it was not provided to the
@@ -253,7 +261,10 @@ class App(Scaffold):
 
         .. versionadded:: 0.8
         """
-        pass
+        prefix, package_path = find_package(self.import_name)
+        if prefix is None:
+            return os.path.join(package_path, 'instance')
+        return os.path.join(prefix, 'var', self.name + '-instance')
 
     def create_global_jinja_loader(self) -> DispatchingJinjaLoader:
         """Creates the loader for the Jinja2 environment.  Can be used to
@@ -266,7 +277,7 @@ class App(Scaffold):
 
         .. versionadded:: 0.7
         """
-        pass
+        return DispatchingJinjaLoader(self)
 
     def select_jinja_autoescape(self, filename: str) -> bool:
         """Returns ``True`` if autoescaping should be active for the given
@@ -277,7 +288,9 @@ class App(Scaffold):
 
         .. versionadded:: 0.5
         """
-        pass
+        if filename is None:
+            return True
+        return filename.endswith(('.html', '.htm', '.xml', '.xhtml', '.svg'))
 
     @property
     def debug(self) -> bool:
@@ -290,7 +303,12 @@ class App(Scaffold):
 
         Default: ``False``
         """
-        pass
+        return self.config['DEBUG']
+
+    @debug.setter
+    def debug(self, value: bool) -> None:
+        self.config['DEBUG'] = value
+        self.jinja_env.auto_reload = self.templates_auto_reload
 
     @setupmethod
     def register_blueprint(self, blueprint: Blueprint, **options: t.Any) -> None:
