@@ -17,13 +17,25 @@ def wsgi_errors_stream() -> t.TextIO:
     can't import this directly, you can refer to it as
     ``ext://flask.logging.wsgi_errors_stream``.
     """
-    pass
+    if request:
+        return request.environ['wsgi.errors']
+    return sys.stderr
 
 def has_level_handler(logger: logging.Logger) -> bool:
     """Check if there is a handler in the logging chain that will handle the
     given logger's :meth:`effective level <~logging.Logger.getEffectiveLevel>`.
     """
-    pass
+    level = logger.getEffectiveLevel()
+    current = logger
+
+    while current:
+        if any(handler.level <= level for handler in current.handlers):
+            return True
+        if not current.propagate:
+            break
+        current = current.parent
+
+    return False
 default_handler = logging.StreamHandler(wsgi_errors_stream)
 default_handler.setFormatter(logging.Formatter('[%(asctime)s] %(levelname)s in %(module)s: %(message)s'))
 
@@ -40,4 +52,12 @@ def create_logger(app: App) -> logging.Logger:
     :class:`~logging.StreamHandler` for
     :func:`~flask.logging.wsgi_errors_stream` with a basic format.
     """
-    pass
+    logger = logging.getLogger(app.name)
+
+    if app.debug and logger.level == logging.NOTSET:
+        logger.setLevel(logging.DEBUG)
+
+    if not has_level_handler(logger):
+        logger.addHandler(default_handler)
+
+    return logger
