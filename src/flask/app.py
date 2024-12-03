@@ -187,7 +187,7 @@ class Flask(App):
 
         .. versionadded:: 0.9
         """
-        pass
+        return self.config['SEND_FILE_MAX_AGE_DEFAULT']
 
     def send_static_file(self, filename: str) -> Response:
         """The view function used to serve files from
@@ -201,7 +201,19 @@ class Flask(App):
         .. versionadded:: 0.5
 
         """
-        pass
+        if not self.has_static_folder:
+            raise RuntimeError("No static folder for this object")
+        
+        # Ensure a valid filename is provided
+        try:
+            filename = safe_join(self.static_folder, filename)
+        except NotFound:
+            raise NotFound("Invalid filename")
+
+        if not os.path.isfile(filename):
+            raise NotFound()
+
+        return send_file(filename, conditional=True, max_age=self.get_send_file_max_age(filename))
 
     def open_resource(self, resource: str, mode: str='rb') -> t.IO[t.AnyStr]:
         """Open a resource file relative to :attr:`root_path` for
