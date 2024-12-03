@@ -39,7 +39,7 @@ class JSONProvider:
         :param obj: The data to serialize.
         :param kwargs: May be passed to the underlying JSON library.
         """
-        pass
+        return json.dumps(obj, **kwargs)
 
     def dump(self, obj: t.Any, fp: t.IO[str], **kwargs: t.Any) -> None:
         """Serialize data as JSON and write to a file.
@@ -49,7 +49,7 @@ class JSONProvider:
             encoding to be valid JSON.
         :param kwargs: May be passed to the underlying JSON library.
         """
-        pass
+        json.dump(obj, fp, **kwargs)
 
     def loads(self, s: str | bytes, **kwargs: t.Any) -> t.Any:
         """Deserialize data as JSON.
@@ -57,7 +57,7 @@ class JSONProvider:
         :param s: Text or UTF-8 bytes.
         :param kwargs: May be passed to the underlying JSON library.
         """
-        pass
+        return json.loads(s, **kwargs)
 
     def load(self, fp: t.IO[t.AnyStr], **kwargs: t.Any) -> t.Any:
         """Deserialize data as JSON read from a file.
@@ -65,7 +65,7 @@ class JSONProvider:
         :param fp: A file opened for reading text or UTF-8 bytes.
         :param kwargs: May be passed to the underlying JSON library.
         """
-        pass
+        return json.load(fp, **kwargs)
 
     def response(self, *args: t.Any, **kwargs: t.Any) -> Response:
         """Serialize the given arguments as JSON, and return a
@@ -82,7 +82,16 @@ class JSONProvider:
             treat as a list to serialize.
         :param kwargs: Treat as a dict to serialize.
         """
-        pass
+        from flask import current_app
+        from flask.wrappers import Response
+
+        if args and kwargs:
+            raise TypeError("Cannot pass both args and kwargs.")
+        
+        data = args[0] if len(args) == 1 else args if len(args) > 1 else kwargs
+
+        dumped = self.dumps(data)
+        return current_app.response_class(dumped, mimetype=self.mimetype)
 
 class DefaultJSONProvider(JSONProvider):
     """Provide JSON operations using Python's built-in :mod:`json`
@@ -118,7 +127,10 @@ class DefaultJSONProvider(JSONProvider):
         :param obj: The data to serialize.
         :param kwargs: Passed to :func:`json.dumps`.
         """
-        pass
+        kwargs.setdefault('default', self.default)
+        kwargs.setdefault('ensure_ascii', self.ensure_ascii)
+        kwargs.setdefault('sort_keys', self.sort_keys)
+        return json.dumps(obj, **kwargs)
 
     def loads(self, s: str | bytes, **kwargs: t.Any) -> t.Any:
         """Deserialize data as JSON from a string or bytes.
@@ -126,7 +138,7 @@ class DefaultJSONProvider(JSONProvider):
         :param s: Text or UTF-8 bytes.
         :param kwargs: Passed to :func:`json.loads`.
         """
-        pass
+        return json.loads(s, **kwargs)
 
     def response(self, *args: t.Any, **kwargs: t.Any) -> Response:
         """Serialize the given arguments as JSON, and return a
@@ -144,4 +156,19 @@ class DefaultJSONProvider(JSONProvider):
             treat as a list to serialize.
         :param kwargs: Treat as a dict to serialize.
         """
-        pass
+        from flask import current_app
+        from flask.wrappers import Response
+
+        if args and kwargs:
+            raise TypeError("Cannot pass both args and kwargs.")
+        
+        data = args[0] if len(args) == 1 else args if len(args) > 1 else kwargs or None
+
+        indent = None
+        separators = (',', ':')
+        if self.compact is False or (self.compact is None and current_app.debug):
+            indent = 2
+            separators = (', ', ': ')
+
+        dumped = self.dumps(data, indent=indent, separators=separators)
+        return current_app.response_class(dumped, mimetype=self.mimetype)
