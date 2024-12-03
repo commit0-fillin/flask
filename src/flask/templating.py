@@ -20,7 +20,11 @@ def _default_template_ctx_processor() -> dict[str, t.Any]:
     """Default template context processor.  Injects `request`,
     `session` and `g`.
     """
-    pass
+    return {
+        'request': request,
+        'session': session,
+        'g': g
+    }
 
 class Environment(BaseEnvironment):
     """Works like a regular Jinja2 environment but has some additional
@@ -49,7 +53,9 @@ def render_template(template_name_or_list: str | Template | list[str | Template]
         a list is given, the first name to exist will be rendered.
     :param context: The variables to make available in the template.
     """
-    pass
+    ctx = _request_ctx_stack.top
+    ctx.app.update_template_context(context)
+    return ctx.app.jinja_env.get_or_select_template(template_name_or_list).render(context)
 
 def render_template_string(source: str, **context: t.Any) -> str:
     """Render a template from the given source string with the given
@@ -58,7 +64,9 @@ def render_template_string(source: str, **context: t.Any) -> str:
     :param source: The source code of the template to render.
     :param context: The variables to make available in the template.
     """
-    pass
+    ctx = _request_ctx_stack.top
+    ctx.app.update_template_context(context)
+    return ctx.app.jinja_env.from_string(source).render(context)
 
 def stream_template(template_name_or_list: str | Template | list[str | Template], **context: t.Any) -> t.Iterator[str]:
     """Render a template by name with the given context as a stream.
@@ -71,7 +79,10 @@ def stream_template(template_name_or_list: str | Template | list[str | Template]
 
     .. versionadded:: 2.2
     """
-    pass
+    ctx = _request_ctx_stack.top
+    ctx.app.update_template_context(context)
+    template = ctx.app.jinja_env.get_or_select_template(template_name_or_list)
+    return template.stream(context)
 
 def stream_template_string(source: str, **context: t.Any) -> t.Iterator[str]:
     """Render a template from the given source string with the given
@@ -83,4 +94,7 @@ def stream_template_string(source: str, **context: t.Any) -> t.Iterator[str]:
 
     .. versionadded:: 2.2
     """
-    pass
+    ctx = _request_ctx_stack.top
+    ctx.app.update_template_context(context)
+    template = ctx.app.jinja_env.from_string(source)
+    return template.stream(context)
